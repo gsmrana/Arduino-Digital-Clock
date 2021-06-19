@@ -32,8 +32,13 @@ const char daysOfTheWeek[7][10] =
 
 char timestr[20];
 char datestr[20];
-char strbuffer[32];
-uint8_t strlength; 
+
+uint8_t strLength; 
+char strBuffer[32];
+
+uint8_t serialLength; 
+char serialBuffer[32];
+
 uint8_t rtc_status;
 volatile uint8_t pressCount;
 volatile uint8_t pressedButton = BUTTON_NONE;
@@ -44,13 +49,13 @@ DateTime now;
 void setup() 
 {
   Serial.begin(9600);
-  Serial.println("CUB Digital Clock");
+  Serial.println("DS1307 Digital Clock");
 
   lcd.begin(20, 4);
   CreateCustomChars();
 
   lcd.setCursor(4, 0);
-  lcd.print("CUB CSE-2302");
+  lcd.print("DS1307 RTC");
   lcd.setCursor(3, 1);
   lcd.print("Digital Clock");
   
@@ -78,8 +83,9 @@ void setup()
 
 void loop() 
 {
-  button_operations();
-  update_display();
+  HandleButtonOperations();  
+  ProcessSerialCommand();
+  UpdateDisplay();
   delay(1000);
 }
 
@@ -95,7 +101,7 @@ void scan_buttons()
   }
 }
 
-void button_operations()
+void HandleButtonOperations()
 {
   if(pressedButton != BUTTON_NONE)
   {
@@ -124,17 +130,13 @@ void button_operations()
   pressedButton = BUTTON_NONE;
 }
 
-void update_display()
+void UpdateDisplay()
 {
   now = rtc.now();  
   sprintf(datestr, "%.2u/%.2u/%.4u", now.day(), now.month(), now.year());
   sprintf(timestr, "%.2u:%.2u:%.2u %s", now.twelveHour(), now.minute(), now.second(), now.isPM() ? "PM" : "AM");  
-  //Serial.print(datestr);
-  //Serial.print(" ");
-  //Serial.println(timestr);
 
   //update time display
-  //if(timestr[0] == '0') timestr[0] = ' ';
   printBigString(2, &timestr[0], 2); //hour
   lcd.setCursor(8, 0);
   lcd.write('.');
@@ -147,18 +149,49 @@ void update_display()
   lcd.write(&timestr[6], 2); //second
 
   //update date display
-  strlength = sprintf(strbuffer,"%s", daysOfTheWeek[now.dayOfTheWeek()]);
-  str_padding_atend(strbuffer, MAX_DAY_STR_SIZE - strlength);
+  strLength = sprintf(strBuffer,"%s", daysOfTheWeek[now.dayOfTheWeek()]);
+  str_padding_at_end(strBuffer, MAX_DAY_STR_SIZE - strLength);
   lcd.setCursor(0, 3);
-  lcd.print(strbuffer);
+  lcd.print(strBuffer);
   lcd.setCursor(10, 3);
   lcd.print(datestr);
 }
 
-void str_padding_atend(char *str, uint8_t paddinglen)
+void str_padding_at_end(char *str, uint8_t paddinglen)
 {
   while(paddinglen--) 
     strcat(str, " ");
+}
+
+void ProcessSerialCommand()
+{
+  int rxlen = Serial.available();
+  if(rxlen < 4) return;
+
+  serialLength = 0;
+  while(serialLength < rxlen)
+  {
+    serialBuffer[serialLength++] = Serial.read();
+  }
+  
+  if(strstr(serialBuffer, "\r")) return;
+
+  //"SET 22:29:12 Jan 14 2021\r"
+  if(strstr(serialBuffer, "SET"))
+  {
+    if(serialLength < 25) return;
+    rtc.adjust(DateTime(&serialBuffer[13], &serialBuffer[4]));
+    Serial.println("OK");
+  }
+  else if(strstr(serialBuffer, "GET"))
+  {
+    now = rtc.now();
+    sprintf(timestr, "%.2u:%.2u:%.2u", now.hour(), now.minute(), now.second());  
+    sprintf(datestr, "%.2u %.2u %.4u", now.month(), now.day(), now.year());    
+    Serial.print(timestr);
+    Serial.print(" ");
+    Serial.println(datestr);
+  } 
 }
 
 // the 8 arrays that form each segment of the custom numbers
